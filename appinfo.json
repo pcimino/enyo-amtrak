@@ -1,0 +1,13 @@
+{
+	"id": "com.translunardesigns.amtrakcommuter",
+	"version": "2.0.0",
+	"vendor": "Trans Lunar Designs, Inc.",
+	"type": "web",
+	"main": "index.html",
+	"title": "Amtrak Commuter",
+	"icon": "icon.png",
+	"smallicon": "images/LogoColor32x32.png",
+	"splashicon": "images/splashicon2.png",
+	"splashBackground": "images/splashscreen.png",
+	"uiRevision":2
+}
