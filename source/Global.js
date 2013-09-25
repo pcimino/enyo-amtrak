@@ -1,7 +1,7 @@
 /* Hate globals, but sometimes its just too tempting than trying to figure out the cross component calling */
 
 var Global = {};
-Global.logging = false;
+Global.logging = true;
 
 Global.amtrakThis = "";
 Global.routeThis = "";
@@ -149,7 +149,14 @@ String.prototype.ltrim = function() {
 String.prototype.rtrim = function() {
 	return this.replace(/\s+$/,"");
 };
+
+Global.useNew = false;
 Global.checkRouteSchedule = function(routeNameArg, departureArg, destinationArg, callBackArg, routePosArg) {
+	if (Global.useNew) {
+		Global.log("Check Status");
+		Global.checkStatus(routeNameArg, departureArg, destinationArg, callBackArg, routePosArg);
+		return;
+	}
 	Global.amtrakThis.$.ScheduleSpinner.show();
 	if (Global.inProcessSched) {
 		setTimeout(function() {
@@ -206,8 +213,16 @@ Global.checkRouteSchedule = function(routeNameArg, departureArg, destinationArg,
 			'_handler=amtrak.presentation.handler.request.rail.AmtrakRailTrainStatusSearchRequestHandler/_xpath=/sessionWorkflow/productWorkflow[@product="Rail"]':''
 		}
 		,'onSuccess' : function(req){ 
+			// Clear the schedule and reload results
+			Global.routeScheduleResults = [];
+			Global.routeScheduleResultsPos = 0;
+			Global.routeListThis.$.virtualList.refresh();
 			if (req.responseText.indexOf("Problem Finding Service") > -1) {
 				Global.routeScheduleResults.push({id:Global.routeScheduleResultsPos, routeName:routeName, statusCode:3, destinationStatus:"Problem finding service. Arrival and departure must be on the same route."});
+				Global.routeListThis.$.virtualList.refresh();
+			} else if (req.responseText.indexOf("Oops") > -1) {
+				Global.routeScheduleResults.push({id:Global.routeScheduleResultsPos, routeName:routeName, statusCode:3, destinationStatus:"Problem connecting to Amtrak.com, if this persists please contact the developer."});
+				Global.routeListThis.$.virtualList.refresh();
 			} else {
 				var procArrSc = req.responseText.toString().split("<tr class=\"status_result departs");
 				var callBackSchedArr = [];
@@ -295,7 +310,153 @@ Global.parseAmtrakScheduleStr = function(input) {
     return ret;
 
 };
-	  
+
+Global.parseAmtrakScheduleStr2 = function(input) {
+	var ret = {statusCode:-2, train:'', routeName:'', service:'', departTime:'', departDay:'',departStatus:'',destinationTime:'', destinationDay:'', destinationStatus:''};
+	
+	var from = input.substring(input.indexOf('From</span>: '));
+	
+	var tempArr = input.split('</span>');
+	for (i in tempArr) {
+		switch (i) {
+			case 0: ret.train = tempArr[i].substring(3, tempArr[i].indexOf(' '));
+					ret.routeName = tempArr[i].substring(tempArr[i].indexOf(' '), tempArr[i].indexOf('<a href'));
+			break;
+			case 2:	// From description
+			break;
+			case 3:	// From symbol
+			break;
+			case 4:	// departure time
+					var departArr = tempArr[i].split('<div id="un_modifyLinks">');
+					ret.departTime = departArr[1].substring(0, departArr[1].indexOf('</div>'));
+					ret.departStatus = departArr[2].substring(0, departArr[2].indexOf('</div>'));
+			break;
+			case 5:	// To
+			break;
+			case 6:	// To Symbol
+			break;
+			case 7:	// Arrival Time
+					var arrArr = arrArr[i].split('<div id="un_modifyLinks">');
+					ret.destinationTime = arrArr[1].substring(0, arrArr[1].indexOf('</div>'));
+					ret.destinationStatus = arrArr[2].substring(0, arrArr[2].indexOf('</div>'));
+			break;
+		}
+
+	}
+
+    return ret;
+
+};
+Global.checkStatus = function(routeNameArg, departureArg, destinationArg, callBackArg, routePosArg) {
+Global.log("Check mobile site");
+	Global.amtrakThis.$.ScheduleSpinner.show();
+	if (Global.inProcessSched) {
+		setTimeout(function() {
+			Global.checkStatus(routeNameArg, departureArg, destinationArg, callBackArg, routePosArg);
+		},
+		2000);
+		return;
+	}
+	Global.inProcessSched = true;
+	Global.routeScheduleResultsPos = routePosArg;
+
+	var routeName = routeNameArg;
+	var departure = departureArg;
+	var destination = destinationArg;
+	var callBack = callBackArg;
+	var day = Global.dayArg;
+	var	month = Global.monthArg;
+	var year = Global.yearArg;
+	var hour = Global.hourArg;
+	var minute = Global.minuteArg;
+	
+	var tempDate = new Date();
+	if (!Global.useCurrentTime) {
+		tempDate.setDate(day);
+		tempDate.setMonth(month);
+		tempDate.setFullYear(year);
+		// Why is hour fast? Some diff between javascript 0-23
+		tempDate.setHours(hour);
+		tempDate.setMinutes(minute);
+	}
+	var dayStr = tempDate.toLocaleDateString();
+	var timeArr = (tempDate.toTimeString()).split(':');
+	var timeStr = timeArr[0]+":"+timeArr[1];
+	Global.log("Checking schedule for " + departure + " to " + destination);
+	Global.amtrakThis.$.AmtrakHeader.setContent("As of: " + Global.dateStr(tempDate)),
+
+	AjaxRequest.post({
+		'url':'http://m.amtrak.com/mt/www.amtrak.com/itd/amtrak?un_jtt_v_target=status', 
+		'parameters' : {  
+			'requestor':'amtrak.presentation.handler.page.rail.AmtrakCMSRailSchedulesSelectTrainPageHandler',
+			'xwdf_origin':'/sessionWorkflow/productWorkflow[@product="Rail"]/travelSelection/journeySelection[1]/departLocation/search',
+			'wdf_origin':departure,
+			'xwdf_destination':'/sessionWorkflow/productWorkflow[@product="Rail"]/travelSelection/journeySelection[1]/arriveLocation/search',
+			'wdf_destination':destination,
+			'xwdf_SortBy':'/sessionWorkflow/productWorkflow[@product="Rail"]/tripRequirements/journeyRequirements[1]/departDate/@radioSelect',
+			'wdf_SortBy':'arrivalTime',
+			'status_dep':'checked',
+			'un_jtt_status':'1',
+			'un_form_encoding':'utf-8',
+			'un_form_post_list':'',
+			'/sessionWorkflow/productWorkflow[@product="Rail"]/tripRequirements/journeyRequirements[1]/departDate.date':dayStr,
+			'/sessionWorkflow/productWorkflow[@product="Rail"]/tripRequirements/journeyRequirements[1]/departTime.hourmin':timeStr,
+			'_handler=amtrak.presentation.handler.request.rail.AmtrakCMSRailSchedulesSearchRequestHandler/_xpath=/sessionWorkflow/productWorkflow[@product="Rail"]':'',
+			'_handler=amtrak.presentation.handler.request.rail.AmtrakCMSRailSchedulesSearchRequestHandler/_xpath=/sessionWorkflow/productWorkflow[@product="Rail"].x':'111',
+			'_handler=amtrak.presentation.handler.request.rail.AmtrakCMSRailSchedulesSearchRequestHandler/_xpath=/sessionWorkflow/productWorkflow[@product="Rail"].y':'13',
+			'_handler=amtrak.presentation.handler.request.rail.AmtrakRailTrainStatusSearchRequestHandler/_xpath=/sessionWorkflow/productWorkflow[@product="Rail"]':''
+		}
+		,'onSuccess' : function(req){ 
+			// Clear the schedule and reload results
+			Global.routeScheduleResults = [];
+			Global.routeScheduleResultsPos = 0;
+			Global.routeListThis.$.virtualList.refresh();
+			Global.log(req.responseText);
+			if (req.responseText.indexOf("Problem Finding Service") > -1) {
+				Global.routeScheduleResults.push({id:Global.routeScheduleResultsPos, routeName:routeName, statusCode:3, destinationStatus:"Problem finding service. Arrival and departure must be on the same route."});
+				Global.routeListThis.$.virtualList.refresh();
+			} else if (req.responseText.indexOf("Oops") > -1) {
+				Global.routeScheduleResults.push({id:Global.routeScheduleResultsPos, routeName:routeName, statusCode:3, destinationStatus:"Problem connecting to Amtrak.com, if this persists please contact the developer."});
+				Global.routeListThis.$.virtualList.refresh();
+			} else {
+				var procArrSc = req.responseText.toString().split('<span class="un_jtt_resultLink">');
+				var callBackSchedArr = [];
+				var callBackData = {};
+				for (i in procArrSc) {
+					if (i > 0) {
+						var trainsSc = procArrSc[i].split("<tr class=\"status_result arrives")
+						var departsSc = Global.parseAmtrakScheduleStr2(trainsSc[0]);
+						Global.amtrakThis.popMessage("Depart " + departsSc.statusCode +":"+  departsSc.train+":"+ departsSc.routeName+":"+ departsSc.service+":"+ departsSc.departTime +":"+departsSc.departDay+":"+ departsSc.departStatus+":"+ departsSc.destinationTime+":"+ departsSc.destinationDay+":"+ departsSc.destinationStatus);
+	
+						var arrivesSc = Global.parseAmtrakScheduleStr2(trainsSc[1]);
+						
+						Global.amtrakThis.popMessage("Arrive " + arrivesSc.statusCode +":"+  arrivesSc.train+":"+ arrivesSc.routeName+":"+ arrivesSc.service+":"+ arrivesSc.departTime +":"+arrivesSc.departDay+":"+ arrivesSc.departStatus+":"+ arrivesSc.destinationTime+":"+ arrivesSc.destinationDay+":"+ arrivesSc.destinationStatus);
+
+						departsSc.destinationTime = arrivesSc.destinationTime;
+						departsSc.destinationDay = arrivesSc.destinationDay;
+						departsSc.destinationStatus = arrivesSc.destinationStatus;
+						departsSc.id = Global.routeScheduleResultsPos;
+						departsSc.routeName = routeName;
+						if (departsSc.statusCode > 0 || arrivesSc.statusCode > 0) {
+							if (arrivesSc.statusCode > departsSc.statusCode) {
+								departsSc.statusCode = arrivesSc.statusCode;
+							}
+						}
+						Global.log("Departs " + JSON.stringify(departsSc));
+						//callBackSchedArr.push(departsSc);
+						Global.routeScheduleResults.push(departsSc);
+						Global.routeListThis.$.virtualList.refresh();
+					}
+				}
+			}
+			Global.inProcessSched = false;
+			Global.routeListThis.scheduleUpdate();
+		}
+		,'timeout':10000
+		,'onTimeout':function(req){ Global.inProcessSched = false;Global.amtrakThis.$.ScheduleSpinner.hide();Global.amtrakThis.popMessage('Connection Timed Out!'); }
+		,'onError':function(req){ Global.inProcessSched = false;Global.amtrakThis.$.ScheduleSpinner.hide();Global.amtrakThis.popMessage('Error, check your network connection '+req.statusCode);}
+	});
+};
 Global.parseAmtrakStationStr = function(input) {
 	var tempSymArr = input.split("&quot;");
 
